@@ -1,0 +1,6 @@
+{
+  "blockedTerms": ["AcmeCorp", "Project Phoenix", "internal-tool-name"],
+  "blockedDomains": ["internal.acme.com", "jira.acme.com", "confluence.acme.com"],
+  "blockedNames": ["John Boss", "Jane CTO"],
+  "customPatterns": ["ACME-\\d{4,}", "PROJ-\\d+"]
+}

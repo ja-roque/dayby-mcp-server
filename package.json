@@ -1,0 +1,23 @@
+{
+  "name": "@dayby/mcp-server",
+  "version": "0.1.0",
+  "description": "DayBy MCP Server — Post your dev progress from Claude, Cursor, or any MCP client. Local sanitization built in.",
+  "main": "dist/index.js",
+  "bin": {
+    "dayby-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js"
+  },
+  "keywords": ["mcp", "dayby", "developer", "journal", "claude"],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "@types/node": "^20.0.0"
+  }
+}
