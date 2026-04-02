@@ -56,20 +56,41 @@ Create `~/.dayby/sanitizer.json`:
 }
 ```
 
-### 3. Add to Claude Desktop / Cursor
+### 3. Install
 
-In your MCP config (`claude_desktop_config.json` or Cursor settings):
+```bash
+npm install -g @dayby/mcp-server
+```
 
+### 4. Add to Claude Code / Claude Desktop / Cursor
+
+**Claude Code (simplest):**
+```bash
+claude mcp add dayby -- dayby-mcp
+```
+
+**Claude Desktop** (`claude_desktop_config.json`):
 ```json
 {
   "mcpServers": {
     "dayby": {
-      "command": "node",
-      "args": ["/path/to/mcp-server/dist/index.js"],
+      "command": "dayby-mcp",
       "env": {
-        "DAYBY_API_KEY": "your-api-key-here",
-        "DAYBY_API_URL": "https://dayby.dev",
-        "DAYBY_BLOCKED_TERMS": "CompanyName,SecretProject"
+        "DAYBY_API_KEY": "your-api-key-here"
+      }
+    }
+  }
+}
+```
+
+**Cursor** (`.cursor/mcp.json`):
+```json
+{
+  "mcpServers": {
+    "dayby": {
+      "command": "dayby-mcp",
+      "env": {
+        "DAYBY_API_KEY": "your-api-key-here"
       }
     }
   }
