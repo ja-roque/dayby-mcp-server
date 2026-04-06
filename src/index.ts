@@ -72,6 +72,7 @@ interface Draft {
   sanitizedTitle: string;
   sanitizedContent: string;
   strippedItems: string[];
+  visibility: 'published' | 'draft';
   createdAt: Date;
 }
 
@@ -119,6 +120,7 @@ async function main() {
         sanitizedTitle: titleResult.clean,
         sanitizedContent: contentResult.clean,
         strippedItems: allStripped,
+        visibility,
         createdAt: new Date(),
       };
       drafts.set(draftId, draft);
@@ -159,8 +161,9 @@ async function main() {
       draft_id: z.string().describe('The draft ID from draft_post'),
       title: z.string().optional().describe('Updated title (will be re-sanitized)'),
       content: z.string().optional().describe('Updated content (will be re-sanitized)'),
+      visibility: z.enum(['published', 'draft']).optional().describe('Updated visibility'),
     },
-    async ({ draft_id, title, content }) => {
+    async ({ draft_id, title, content, visibility }) => {
       const draft = drafts.get(draft_id);
       if (!draft) {
         return {
@@ -181,9 +184,14 @@ async function main() {
         draft.strippedItems.push(...result.stripped);
       }
 
+      if (visibility) {
+        draft.visibility = visibility;
+      }
+
       let response = `✏️ **Draft Updated** (ID: ${draft_id})\n\n`;
       response += `**Title:** ${draft.sanitizedTitle}\n\n`;
       response += `**Content:**\n${draft.sanitizedContent}\n\n`;
+      response += `**Visibility:** ${draft.visibility}\n`;
       response += `\n👉 Use **publish_post** with draft ID: \`${draft_id}\` when ready.`;
 
       return { content: [{ type: 'text' as const, text: response }] };
@@ -223,6 +231,7 @@ async function main() {
         const result = await client.createPost({
           title: draft.sanitizedTitle,
           content: draft.sanitizedContent,
+          visibility: draft.visibility,
         });
 
         let response = `✅ **Published to DayBy!**\n\n`;
@@ -288,6 +297,105 @@ async function main() {
             type: 'text' as const,
             text: `❌ Failed to list posts: ${e instanceof Error ? e.message : 'Unknown error'}`,
           }],
+        };
+      }
+    }
+  );
+
+  // ========================================
+  // Tool: get_post
+  // ========================================
+  server.tool(
+    'get_post',
+    'Get a single DayBy post by its slug.',
+    {
+      slug: z.string().describe('The post slug'),
+    },
+    async ({ slug }) => {
+      if (!config.apiKey) {
+        return { content: [{ type: 'text' as const, text: '❌ No API key configured.' }] };
+      }
+
+      try {
+        const result = await client.getPost(slug);
+        const post = result.post;
+        let response = `📄 **${post.title}**\n\n`;
+        response += `**Slug:** ${post.slug}\n`;
+        response += `**URL:** ${post.url}\n`;
+        response += `**Visibility:** ${post.visibility}\n`;
+        response += `**Created:** ${post.created_at.slice(0, 10)}\n\n`;
+        response += post.content;
+        return { content: [{ type: 'text' as const, text: response }] };
+      } catch (e) {
+        return {
+          content: [{ type: 'text' as const, text: `❌ Failed to get post: ${e instanceof Error ? e.message : 'Unknown error'}` }],
+        };
+      }
+    }
+  );
+
+  // ========================================
+  // Tool: update_post
+  // ========================================
+  server.tool(
+    'update_post',
+    'Update an existing DayBy post by slug. Content is sanitized locally before sending.',
+    {
+      slug: z.string().describe('The post slug to update'),
+      title: z.string().optional().describe('New title (will be sanitized)'),
+      content: z.string().optional().describe('New content (will be sanitized)'),
+      visibility: z.enum(['published', 'draft']).optional().describe('New visibility'),
+    },
+    async ({ slug, title, content, visibility }) => {
+      if (!config.apiKey) {
+        return { content: [{ type: 'text' as const, text: '❌ No API key configured.' }] };
+      }
+
+      const params: { title?: string; content?: string; visibility?: string } = {};
+      if (title) params.title = sanitizer.sanitize(title).clean;
+      if (content) params.content = sanitizer.sanitize(content).clean;
+      if (visibility) params.visibility = visibility;
+
+      if (Object.keys(params).length === 0) {
+        return { content: [{ type: 'text' as const, text: '❌ Provide at least one field to update (title, content, or visibility).' }] };
+      }
+
+      try {
+        const result = await client.updatePost(slug, params);
+        const post = result.post;
+        let response = `✅ **Post Updated**\n\n`;
+        response += `**Title:** ${post.title}\n`;
+        response += `**URL:** ${post.url}\n`;
+        response += `**Visibility:** ${post.visibility}\n`;
+        return { content: [{ type: 'text' as const, text: response }] };
+      } catch (e) {
+        return {
+          content: [{ type: 'text' as const, text: `❌ Failed to update post: ${e instanceof Error ? e.message : 'Unknown error'}` }],
+        };
+      }
+    }
+  );
+
+  // ========================================
+  // Tool: delete_post
+  // ========================================
+  server.tool(
+    'delete_post',
+    'Permanently delete a DayBy post by its slug.',
+    {
+      slug: z.string().describe('The post slug to delete'),
+    },
+    async ({ slug }) => {
+      if (!config.apiKey) {
+        return { content: [{ type: 'text' as const, text: '❌ No API key configured.' }] };
+      }
+
+      try {
+        const result = await client.deletePost(slug);
+        return { content: [{ type: 'text' as const, text: `✅ ${result.message || 'Post deleted.'}` }] };
+      } catch (e) {
+        return {
+          content: [{ type: 'text' as const, text: `❌ Failed to delete post: ${e instanceof Error ? e.message : 'Unknown error'}` }],
         };
       }
     }
