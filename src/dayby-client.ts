@@ -32,10 +32,17 @@ export interface PostsListResponse {
 export class DayByClient {
   private apiUrl: string;
   private apiKey: string;
+  private resolveKey?: () => string;
 
-  constructor(config: DayByConfig) {
+  constructor(config: DayByConfig & { resolveKey?: () => string }) {
     this.apiUrl = config.apiUrl.replace(/\/$/, '');
     this.apiKey = config.apiKey;
+    this.resolveKey = config.resolveKey;
+  }
+
+  private getApiKey(): string {
+    if (this.resolveKey) return this.resolveKey();
+    return this.apiKey;
   }
 
   private async request<T>(
@@ -44,8 +51,9 @@ export class DayByClient {
     body?: Record<string, unknown>
   ): Promise<T> {
     const url = `${this.apiUrl}${path}`;
+    const apiKey = this.getApiKey();
     const headers: Record<string, string> = {
-      'Authorization': `Bearer ${this.apiKey}`,
+      'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     };

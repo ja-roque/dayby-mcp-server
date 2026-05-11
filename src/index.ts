@@ -7,6 +7,10 @@
  * All content is sanitized locally before it ever touches the network.
  *
  * Flow: draft_post → review → publish_post (nothing leaves without approval)
+ *
+ * Auth:
+ *   Run `dayby-mcp auth` once to authorize via OAuth (no API key needed).
+ *   Or set DAYBY_API_KEY env var for the legacy API key flow.
  */
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -14,8 +18,22 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { Sanitizer, type SanitizerConfig } from './sanitizer.js';
 import { DayByClient } from './dayby-client.js';
+import { clearCredentials, runAuthFlow, getStoredToken } from './auth.js';
+import { toApiVisibility, fromApiVisibility } from './visibility.js';
 import * as fs from 'fs';
 import * as path from 'path';
+
+// --- Auth subcommand ---
+
+async function handleAuthCommand(): Promise<void> {
+  const args = process.argv.slice(3); // after "auth"
+  if (args.includes('--logout')) {
+    clearCredentials();
+    return;
+  }
+  const apiUrl = process.env.DAYBY_API_URL || 'https://dayby.dev';
+  await runAuthFlow(apiUrl);
+}
 
 // --- Configuration ---
 
@@ -26,11 +44,17 @@ interface Config {
 }
 
 function loadConfig(): Config {
-  // 1. Check env vars
   const apiUrl = process.env.DAYBY_API_URL || 'https://dayby.dev';
-  const apiKey = process.env.DAYBY_API_KEY || '';
 
-  // 2. Load sanitizer config from file if it exists
+  // 1. Env var takes priority (legacy)
+  let apiKey = process.env.DAYBY_API_KEY || '';
+
+  // 2. Fall back to stored token from `dayby-mcp auth`
+  if (!apiKey) {
+    apiKey = getStoredToken(apiUrl) || '';
+  }
+
+  // 3. Load sanitizer config from file if it exists
   let sanitizerConfig: Partial<SanitizerConfig> = {};
   const configPaths = [
     path.join(process.env.HOME || '~', '.dayby', 'sanitizer.json'),
@@ -47,7 +71,7 @@ function loadConfig(): Config {
     }
   }
 
-  // 3. Also load from env (comma-separated)
+  // 4. Also load from env (comma-separated)
   if (process.env.DAYBY_BLOCKED_TERMS) {
     sanitizerConfig.blockedTerms = [
       ...(sanitizerConfig.blockedTerms || []),
@@ -85,9 +109,22 @@ function generateDraftId(): string {
 // --- Main ---
 
 async function main() {
+  // Handle `dayby-mcp auth [--logout]` subcommand
+  if (process.argv[2] === 'auth') {
+    await handleAuthCommand();
+    process.exit(0);
+  }
+
   const config = loadConfig();
   const sanitizer = new Sanitizer(config.sanitizer);
-  const client = new DayByClient({ apiUrl: config.apiUrl, apiKey: config.apiKey });
+  const client = new DayByClient({
+    apiUrl: config.apiUrl,
+    apiKey: config.apiKey,
+    resolveKey: () => {
+      // Re-check env and stored credentials on every call
+      return process.env.DAYBY_API_KEY || getStoredToken(config.apiUrl) || config.apiKey;
+    },
+  });
 
   const server = new McpServer({
     name: 'dayby',
@@ -217,11 +254,12 @@ async function main() {
         };
       }
 
-      if (!config.apiKey) {
+      const currentKey = process.env.DAYBY_API_KEY || getStoredToken(config.apiUrl) || config.apiKey;
+      if (!currentKey) {
         return {
           content: [{
             type: 'text' as const,
-            text: '❌ No API key configured. Set DAYBY_API_KEY environment variable or add it to your MCP config.',
+            text: '❌ Not authenticated. Run `dayby-mcp auth` in your terminal to connect your DayBy account.',
           }],
         };
       }
@@ -231,7 +269,7 @@ async function main() {
         const result = await client.createPost({
           title: draft.sanitizedTitle,
           content: draft.sanitizedContent,
-          visibility: draft.visibility,
+          visibility: toApiVisibility(draft.visibility),
         });
 
         let response = `✅ **Published to DayBy!**\n\n`;
@@ -274,9 +312,9 @@ async function main() {
       per_page: z.number().default(10).describe('Posts per page'),
     },
     async ({ page, per_page }) => {
-      if (!config.apiKey) {
+      if (!(process.env.DAYBY_API_KEY || getStoredToken(config.apiUrl) || config.apiKey)) {
         return {
-          content: [{ type: 'text' as const, text: '❌ No API key configured.' }],
+          content: [{ type: 'text' as const, text: '❌ Not authenticated. Run `dayby-mcp auth` to connect your DayBy account.' }],
         };
       }
 
@@ -287,7 +325,7 @@ async function main() {
         for (const post of result.posts) {
           response += `• **${post.title}** — ${post.url}\n`;
           response += `  ${post.content.slice(0, 100)}${post.content.length > 100 ? '...' : ''}\n`;
-          response += `  _${post.created_at.slice(0, 10)} · ${post.visibility}_\n\n`;
+          response += `  _${post.created_at.slice(0, 10)} · ${fromApiVisibility(post.visibility)}_\n\n`;
         }
 
         return { content: [{ type: 'text' as const, text: response }] };
@@ -312,8 +350,8 @@ async function main() {
       slug: z.string().describe('The post slug'),
     },
     async ({ slug }) => {
-      if (!config.apiKey) {
-        return { content: [{ type: 'text' as const, text: '❌ No API key configured.' }] };
+      if (!(process.env.DAYBY_API_KEY || getStoredToken(config.apiUrl) || config.apiKey)) {
+        return { content: [{ type: 'text' as const, text: '❌ Not authenticated. Run `dayby-mcp auth` to connect your DayBy account.' }] };
       }
 
       try {
@@ -322,7 +360,7 @@ async function main() {
         let response = `📄 **${post.title}**\n\n`;
         response += `**Slug:** ${post.slug}\n`;
         response += `**URL:** ${post.url}\n`;
-        response += `**Visibility:** ${post.visibility}\n`;
+        response += `**Visibility:** ${fromApiVisibility(post.visibility)}\n`;
         response += `**Created:** ${post.created_at.slice(0, 10)}\n\n`;
         response += post.content;
         return { content: [{ type: 'text' as const, text: response }] };
@@ -347,14 +385,14 @@ async function main() {
       visibility: z.enum(['published', 'draft']).optional().describe('New visibility'),
     },
     async ({ slug, title, content, visibility }) => {
-      if (!config.apiKey) {
-        return { content: [{ type: 'text' as const, text: '❌ No API key configured.' }] };
+      if (!(process.env.DAYBY_API_KEY || getStoredToken(config.apiUrl) || config.apiKey)) {
+        return { content: [{ type: 'text' as const, text: '❌ Not authenticated. Run `dayby-mcp auth` to connect your DayBy account.' }] };
       }
 
       const params: { title?: string; content?: string; visibility?: string } = {};
       if (title) params.title = sanitizer.sanitize(title).clean;
       if (content) params.content = sanitizer.sanitize(content).clean;
-      if (visibility) params.visibility = visibility;
+      if (visibility) params.visibility = toApiVisibility(visibility);
 
       if (Object.keys(params).length === 0) {
         return { content: [{ type: 'text' as const, text: '❌ Provide at least one field to update (title, content, or visibility).' }] };
@@ -366,7 +404,7 @@ async function main() {
         let response = `✅ **Post Updated**\n\n`;
         response += `**Title:** ${post.title}\n`;
         response += `**URL:** ${post.url}\n`;
-        response += `**Visibility:** ${post.visibility}\n`;
+        response += `**Visibility:** ${fromApiVisibility(post.visibility)}\n`;
         return { content: [{ type: 'text' as const, text: response }] };
       } catch (e) {
         return {
@@ -386,8 +424,8 @@ async function main() {
       slug: z.string().describe('The post slug to delete'),
     },
     async ({ slug }) => {
-      if (!config.apiKey) {
-        return { content: [{ type: 'text' as const, text: '❌ No API key configured.' }] };
+      if (!(process.env.DAYBY_API_KEY || getStoredToken(config.apiUrl) || config.apiKey)) {
+        return { content: [{ type: 'text' as const, text: '❌ Not authenticated. Run `dayby-mcp auth` to connect your DayBy account.' }] };
       }
 
       try {
