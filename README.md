@@ -17,14 +17,14 @@ draft_post → sanitized locally, never touches network
 
 | Tool | What it does | Touches network? |
 |---|---|---|
-| `draft_post` | Creates a sanitized draft from your description | ❌ No |
-| `edit_draft` | Modify a draft before publishing | ❌ No |
-| `check_content` | Dry-run: see what would get stripped | ❌ No |
-| `publish_post` | Publish an approved draft to DayBy | ✅ Yes (sanitized only) |
-| `list_posts` | List your recent DayBy posts | ✅ Yes |
-| `get_post` | Fetch a single post by slug | ✅ Yes |
-| `update_post` | Update title, content, or visibility | ✅ Yes |
-| `delete_post` | Permanently delete a post | ✅ Yes |
+| `draft_post` | Creates a sanitized draft from your description | No |
+| `edit_draft` | Modify a draft before publishing | No |
+| `check_content` | Dry-run: see what would get stripped | No |
+| `publish_post` | Publish an approved draft to DayBy | Yes (sanitized only) |
+| `list_posts` | List your recent DayBy posts | Yes |
+| `get_post` | Fetch a single post by slug | Yes |
+| `update_post` | Update title, content, or visibility | Yes |
+| `delete_post` | Permanently delete a post | Yes |
 
 ## What Gets Stripped (Automatically)
 
@@ -35,30 +35,11 @@ draft_post → sanitized locally, never touches network
 - SSH keys, JWTs, GitHub tokens
 - Database connection URLs
 - File paths with usernames
-- Plus anything you configure in blocklist ↓
+- Plus anything you configure in blocklist
 
 ## Setup
 
-### 1. Get a DayBy API Key
-
-1. Sign up at [dayby.dev](https://dayby.dev)
-2. Go to Settings → API
-3. Enable API access and generate a key
-
-### 2. Configure Sanitizer (Optional but Recommended)
-
-Create `~/.dayby/sanitizer.json`:
-
-```json
-{
-  "blockedTerms": ["YourCompany", "ProjectCodename"],
-  "blockedDomains": ["internal.yourcompany.com"],
-  "blockedNames": ["Your Boss Name"],
-  "customPatterns": ["JIRA-\\d+", "INTERNAL-\\d+"]
-}
-```
-
-### 3. Install
+### 1. Install
 
 **Option A — npx (no install needed):**
 
@@ -80,7 +61,25 @@ cd dayby-mcp-server
 npm install && npm run build
 ```
 
-### 4. Add to Claude Code / Claude Desktop / Cursor
+### 2. Authenticate
+
+Run the auth command to connect your DayBy account:
+
+```bash
+dayby-mcp auth
+```
+
+This opens your browser for a one-click authorization. Your token is saved locally at `~/.dayby/credentials.json`.
+
+To log out:
+
+```bash
+dayby-mcp auth --logout
+```
+
+Alternatively, you can set the `DAYBY_API_KEY` environment variable (from Settings > API on dayby.dev).
+
+### 3. Add to your MCP client
 
 **Claude Code (simplest):**
 
@@ -101,10 +100,7 @@ claude mcp add dayby -- npx @dayby/mcp-server
   "mcpServers": {
     "dayby": {
       "command": "npx",
-      "args": ["@dayby/mcp-server"],
-      "env": {
-        "DAYBY_API_KEY": "your-api-key-here"
-      }
+      "args": ["@dayby/mcp-server"]
     }
   }
 }
@@ -117,12 +113,22 @@ claude mcp add dayby -- npx @dayby/mcp-server
   "mcpServers": {
     "dayby": {
       "command": "npx",
-      "args": ["@dayby/mcp-server"],
-      "env": {
-        "DAYBY_API_KEY": "your-api-key-here"
-      }
+      "args": ["@dayby/mcp-server"]
     }
   }
+}
+```
+
+### 4. Configure Sanitizer (Optional but Recommended)
+
+Create `~/.dayby/sanitizer.json`:
+
+```json
+{
+  "blockedTerms": ["YourCompany", "ProjectCodename"],
+  "blockedDomains": ["internal.yourcompany.com"],
+  "blockedNames": ["Your Boss Name"],
+  "customPatterns": ["JIRA-\\d+", "INTERNAL-\\d+"]
 }
 ```
 
@@ -143,7 +149,7 @@ Claude will use `draft_post` to sanitize locally, show you a preview, and only p
 
 | Variable | Description | Default |
 |---|---|---|
-| `DAYBY_API_KEY` | Your DayBy API key | (required) |
+| `DAYBY_API_KEY` | Your DayBy API key (alternative to `dayby-mcp auth`) | (none) |
 | `DAYBY_API_URL` | DayBy API URL | `https://dayby.dev` |
 | `DAYBY_BLOCKED_TERMS` | Comma-separated blocked terms | (none) |
 | `DAYBY_BLOCKED_DOMAINS` | Comma-separated blocked domains | (none) |
@@ -169,6 +175,10 @@ Then restart your terminal or run `source ~/.bashrc` again.
 **MCP server not showing up in Claude**
 
 Restart Claude Code / Claude Desktop after adding the MCP config.
+
+**`Not authenticated` errors**
+
+Run `dayby-mcp auth` to connect your account, or set `DAYBY_API_KEY` in your environment.
 
 ## License
 
