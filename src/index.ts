@@ -21,6 +21,7 @@ import { DayByClient } from './dayby-client.js';
 import { clearCredentials, runAuthFlow, getStoredToken } from './auth.js';
 import { toApiVisibility, fromApiVisibility } from './visibility.js';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 // --- Auth subcommand ---
@@ -57,7 +58,7 @@ function loadConfig(): Config {
   // 3. Load sanitizer config from file if it exists
   let sanitizerConfig: Partial<SanitizerConfig> = {};
   const configPaths = [
-    path.join(process.env.HOME || '~', '.dayby', 'sanitizer.json'),
+    path.join(os.homedir(), '.dayby', 'sanitizer.json'),
     path.join(process.cwd(), '.dayby-sanitizer.json'),
   ];
 
@@ -97,6 +98,7 @@ interface Draft {
   sanitizedContent: string;
   strippedItems: string[];
   visibility: 'published' | 'draft';
+  tags: string[];
   createdAt: Date;
 }
 
@@ -142,8 +144,9 @@ async function main() {
       title: z.string().describe('Post title — focus on the technology/skill learned'),
       content: z.string().describe('Post content — describe what you learned, built, or solved. The sanitizer will strip any sensitive data automatically.'),
       visibility: z.enum(['published', 'draft']).default('published').describe('Post visibility on DayBy'),
+      tags: z.array(z.string()).optional().describe('Tags/project names for this post (e.g., ["playflow", "rust"]). Used to filter posts by project in the public API.'),
     },
-    async ({ title, content, visibility }) => {
+    async ({ title, content, visibility, tags }) => {
       // Sanitize both title and content locally
       const titleResult = sanitizer.sanitize(title);
       const contentResult = sanitizer.sanitize(content);
@@ -158,6 +161,7 @@ async function main() {
         sanitizedContent: contentResult.clean,
         strippedItems: allStripped,
         visibility,
+        tags: tags || [],
         createdAt: new Date(),
       };
       drafts.set(draftId, draft);
@@ -167,6 +171,9 @@ async function main() {
       response += `**Title:** ${draft.sanitizedTitle}\n\n`;
       response += `**Content:**\n${draft.sanitizedContent}\n\n`;
       response += `**Visibility:** ${visibility}\n`;
+      if (draft.tags.length > 0) {
+        response += `**Tags:** ${draft.tags.join(', ')}\n`;
+      }
 
       if (allStripped.length > 0) {
         response += `\n⚠️ **Sanitizer removed ${allStripped.length} sensitive item(s):**\n`;
@@ -199,8 +206,9 @@ async function main() {
       title: z.string().optional().describe('Updated title (will be re-sanitized)'),
       content: z.string().optional().describe('Updated content (will be re-sanitized)'),
       visibility: z.enum(['published', 'draft']).optional().describe('Updated visibility'),
+      tags: z.array(z.string()).optional().describe('Updated tags/project names'),
     },
-    async ({ draft_id, title, content, visibility }) => {
+    async ({ draft_id, title, content, visibility, tags }) => {
       const draft = drafts.get(draft_id);
       if (!draft) {
         return {
@@ -223,6 +231,10 @@ async function main() {
 
       if (visibility) {
         draft.visibility = visibility;
+      }
+
+      if (tags) {
+        draft.tags = tags;
       }
 
       let response = `✏️ **Draft Updated** (ID: ${draft_id})\n\n`;
@@ -270,6 +282,7 @@ async function main() {
           title: draft.sanitizedTitle,
           content: draft.sanitizedContent,
           visibility: toApiVisibility(draft.visibility),
+          tags: draft.tags.length > 0 ? draft.tags : undefined,
         });
 
         let response = `✅ **Published to DayBy!**\n\n`;
@@ -383,19 +396,21 @@ async function main() {
       title: z.string().optional().describe('New title (will be sanitized)'),
       content: z.string().optional().describe('New content (will be sanitized)'),
       visibility: z.enum(['published', 'draft']).optional().describe('New visibility'),
+      tags: z.array(z.string()).optional().describe('Updated tags/project names'),
     },
-    async ({ slug, title, content, visibility }) => {
+    async ({ slug, title, content, visibility, tags }) => {
       if (!(process.env.DAYBY_API_KEY || getStoredToken(config.apiUrl) || config.apiKey)) {
         return { content: [{ type: 'text' as const, text: '❌ Not authenticated. Run `dayby-mcp auth` to connect your DayBy account.' }] };
       }
 
-      const params: { title?: string; content?: string; visibility?: string } = {};
+      const params: { title?: string; content?: string; visibility?: string; tags?: string[] } = {};
       if (title) params.title = sanitizer.sanitize(title).clean;
       if (content) params.content = sanitizer.sanitize(content).clean;
       if (visibility) params.visibility = toApiVisibility(visibility);
+      if (tags) params.tags = tags;
 
       if (Object.keys(params).length === 0) {
-        return { content: [{ type: 'text' as const, text: '❌ Provide at least one field to update (title, content, or visibility).' }] };
+        return { content: [{ type: 'text' as const, text: '❌ Provide at least one field to update (title, content, visibility, or tags).' }] };
       }
 
       try {
@@ -409,6 +424,51 @@ async function main() {
       } catch (e) {
         return {
           content: [{ type: 'text' as const, text: `❌ Failed to update post: ${e instanceof Error ? e.message : 'Unknown error'}` }],
+        };
+      }
+    }
+  );
+
+  // ========================================
+  // Tool: update_article
+  // Let the user's AI generate or edit the HTML article directly.
+  // ========================================
+  server.tool(
+    'update_article',
+    `Set or replace the HTML article for a DayBy post. Use this to write custom articles with CTAs, rich formatting, or any content the user wants.
+
+DayBy article HTML rules:
+- Return clean HTML fragments only (no wrapper divs, article tags, doctype, html, head, body)
+- Use <p> tags for paragraphs (no classes needed)
+- Use <h2> for section headings, <h3> for sub-sections
+- Use <strong> for key terms, <em> for emphasis
+- Use <blockquote> for pull quotes
+- Use <pre><code> for code blocks, <code> inline for references
+- Use <ul>/<ol> for lists (prefer prose over lists)
+- Use <a href="..." target="_blank"> for links and CTAs
+- No CSS classes on elements (the page stylesheet handles typography)
+- Target length: 600-1000 words
+- Keep the author's voice and perspective from the original post`,
+    {
+      slug: z.string().describe('The post slug to update'),
+      html_article: z.string().describe('The HTML article content. Follow DayBy article HTML rules in the tool description.'),
+    },
+    async ({ slug, html_article }) => {
+      if (!(process.env.DAYBY_API_KEY || getStoredToken(config.apiUrl) || config.apiKey)) {
+        return { content: [{ type: 'text' as const, text: '❌ Not authenticated. Run `dayby-mcp auth` to connect your DayBy account.' }] };
+      }
+
+      try {
+        const result = await client.updateArticle(slug, html_article);
+        const post = result.post;
+        let response = `✅ **Article Updated**\n\n`;
+        response += `**Title:** ${post.title}\n`;
+        response += `**URL:** ${post.url}\n`;
+        response += `${result.message}\n`;
+        return { content: [{ type: 'text' as const, text: response }] };
+      } catch (e) {
+        return {
+          content: [{ type: 'text' as const, text: `❌ Failed to update article: ${e instanceof Error ? e.message : 'Unknown error'}` }],
         };
       }
     }

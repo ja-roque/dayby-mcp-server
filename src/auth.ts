@@ -7,13 +7,14 @@
  */
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { exec } from 'child_process';
 
 // --- Config ---
 
 const DEFAULT_API_URL = 'https://dayby.dev';
-const CREDENTIALS_DIR = path.join(process.env.HOME || '~', '.dayby');
+const CREDENTIALS_DIR = path.join(os.homedir(), '.dayby');
 const CREDENTIALS_FILE = path.join(CREDENTIALS_DIR, 'credentials.json');
 const POLL_INTERVAL_MS = 2000;
 

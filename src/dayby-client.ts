@@ -87,6 +87,7 @@ export class DayByClient {
     title: string;
     content: string;
     visibility?: string;
+    tags?: string[];
   }): Promise<{ post: DayByPost }> {
     return this.request<{ post: DayByPost }>('POST', '/api/v2/posts', {
       post: params,
@@ -95,11 +96,22 @@ export class DayByClient {
 
   async updatePost(
     slug: string,
-    params: { title?: string; content?: string; visibility?: string }
+    params: { title?: string; content?: string; visibility?: string; tags?: string[] }
   ): Promise<{ post: DayByPost }> {
     return this.request<{ post: DayByPost }>('PUT', `/api/v2/posts/${slug}`, {
       post: params,
     });
+  }
+
+  async updateArticle(
+    slug: string,
+    htmlArticle: string
+  ): Promise<{ post: DayByPost; message: string }> {
+    return this.request<{ post: DayByPost; message: string }>(
+      'PUT',
+      `/api/v2/posts/${slug}/article`,
+      { html_article: htmlArticle }
+    );
   }
 
   async deletePost(slug: string): Promise<{ message: string }> {
